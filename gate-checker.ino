@@ -4,7 +4,8 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <ArduinoJson.h>
-#include <RGBLed.h>
+
+#include "RgbLed.h"
 
 // set led pins
 #define RED_LED_PIN 5
@@ -21,18 +22,37 @@
 
 // set timings
 #define OPEN_ON 500
-#define OPEN_OFF 1500
+#define OPEN_OFF 1000
 #define CLOSED_ON 250
 #define CLOSED_OFF 29750
-#define ERROR_ON 250
-#define ERROR_OFF 250
+#define CONTROL_ON 500
+#define CONTROL_OFF 500
+#define ERROR_ON 150
+#define ERROR_OFF 150
 
 // set wifi settings
 #define WIFI_SSID "UnifIOT"
 #define WIFI_PASSWORD "VRRfGsK1WM4fDrf-lLorSMsrwm74neR2"
 
+// keep track of time
+unsigned long currentMillis = 0;
+unsigned long previousFrontLedMillis = 0;
+unsigned long previousRearLedMillis = 0;
+unsigned long previousOpenLedMillis = 0;
+unsigned long previousClosedLedMillis = 0;
+unsigned long previousControlLedMillis = 0;
+unsigned long previousErrorLedMillis = 0;
+
+// keep track of LED state
+byte frontLedState = LOW;
+byte rearLedState = LOW;
+byte openLedState = LOW;
+byte closedLedState = LOW;
+byte controlLedState = LOW;
+byte errorLedState = LOW;
+
 // set LED pins
-RGBLed status_led(RED_LED_PIN, GREEN_LED_PIN, BLUE_LED_PIN, RGBLed::COMMON_CATHODE);
+RgbLed status_led(RED_LED_PIN, GREEN_LED_PIN, BLUE_LED_PIN, RgbLed::COMMON_CATHODE);
 
 // Global variables
 int feedback_state = 0;
@@ -40,20 +60,22 @@ int feedback_state = 0;
 ESP8266WebServer server(80);
 
 void setup() {
+  status_led.setColor(RgbLed::RED);
   Serial.begin(115200);
   // set pin modes
   pinMode(FRONT_REED_PIN, INPUT);
   pinMode(REAR_REED_PIN, INPUT);
+  pinMode(FRONT_RELAY_PIN, OUTPUT);
+  pinMode(REAR_RELAY_PIN, OUTPUT);
 
   // setup wifi
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.println("");
 
   // Wait for connection
   while (WiFi.status() != WL_CONNECTED) {
-    delay(250);
     Serial.print(".");
+    delay(350);
   }
   Serial.println("");
   Serial.print("Connected to ");
@@ -79,30 +101,10 @@ void setup() {
 }
 
 void loop() {
+  currentMillis = millis();
   set_status();
   blink_feedback_led();
   server.handleClient();
-}
-
-void set_status() {
-  /* 
-  * variable that stores the feedback state of the switches: 
-  * - 0: gates are closed
-  * - 1: front gate is opened
-  * - 2: rear gate is opened
-  * - 3: both gates are open
-  */
-
-  // reset state
-  feedback_state = 0;
-
-  // check the gates and update the feedback variable
-  if (digitalRead(FRONT_REED_PIN) == LOW) {
-    feedback_state += 1;
-  }
-  if (digitalRead(REAR_REED_PIN) == LOW) {
-    feedback_state += 2;
-  }
 }
 
 // Define routing
@@ -110,7 +112,8 @@ void restServerRouting() {
   server.on("/", HTTP_GET, []() {
     server.send(200, "text/html", "Gate cheker API, check status on: http://" + WiFi.localIP().toString() + "/status");
   });
-  server.on(F("/status"), HTTP_GET, getStatus);
+  server.on("/status", HTTP_GET, getStatus);
+  server.on("/close", HTTP_POST, closeGate);
 }
 
 // serving settings
@@ -141,7 +144,7 @@ void getStatus() {
 
 // Manage not found URL
 void handleNotFound() {
-  String message = "File Not Found\n\n";
+  String message = "Location Not Found\n\n";
   message += "URI: ";
   message += server.uri();
   message += "\nMethod: ";
@@ -153,6 +156,27 @@ void handleNotFound() {
     message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
   }
   server.send(404, "text/plain", message);
+}
+
+void set_status() {
+  /* 
+  * variable that stores the feedback state of the switches: 
+  * - 0: gates are closed
+  * - 1: front gate is opened
+  * - 2: rear gate is opened
+  * - 3: both gates are open
+  */
+
+  // reset state
+  feedback_state = 0;
+
+  // check the gates and update the feedback variable
+  if (digitalRead(FRONT_REED_PIN) == LOW) {
+    feedback_state += 1;
+  }
+  if (digitalRead(REAR_REED_PIN) == LOW) {
+    feedback_state += 2;
+  }
 }
 
 // let the feedback LED blink by checking the variable
@@ -182,22 +206,116 @@ void blink_feedback_led() {
 }
 
 void blink_front() {
-  status_led.flash(0, 0, 205, OPEN_ON, OPEN_OFF);
+  if (frontLedState == LOW) {
+    if (currentMillis - previousFrontLedMillis >= OPEN_OFF) {
+      status_led.setColor(RgbLed::BLUE);
+      frontLedState = HIGH;
+      previousFrontLedMillis += OPEN_OFF;
+    }
+  } else {
+    if (currentMillis - previousFrontLedMillis >= OPEN_ON) {
+      status_led.off();
+      frontLedState = LOW;
+      previousFrontLedMillis += OPEN_ON;
+    }
+  }
 }
 
 void blink_rear() {
-  status_led.flash(255, 69, 0, OPEN_ON, OPEN_OFF);
+  if (rearLedState == LOW) {
+    if (currentMillis - previousRearLedMillis >= OPEN_OFF) {
+      status_led.setColor(RgbLed::ORANGE);
+      rearLedState = HIGH;
+      previousRearLedMillis += OPEN_OFF;
+    }
+  } else {
+    if (currentMillis - previousRearLedMillis >= OPEN_ON) {
+      status_led.off();
+      rearLedState = LOW;
+      previousRearLedMillis += OPEN_ON;
+    }
+  }
 }
 
 void blink_both() {
-  blink_front();
-  blink_rear();
+  if (openLedState == LOW) {
+    if (currentMillis - previousOpenLedMillis >= OPEN_ON) {
+      status_led.setColor(RgbLed::BLUE);
+      openLedState = HIGH;
+      previousOpenLedMillis += OPEN_ON;
+    }
+  } else {
+    if (currentMillis - previousOpenLedMillis >= OPEN_ON) {
+      status_led.setColor(RgbLed::ORANGE);
+      openLedState = LOW;
+      previousOpenLedMillis += OPEN_ON;
+    }
+  }
 }
 
 void blink_closed() {
-  status_led.flash(0, 200, 0, CLOSED_ON, CLOSED_OFF);
+  if (closedLedState == LOW) {
+    if (currentMillis - previousClosedLedMillis >= CLOSED_OFF) {
+      status_led.setColor(RgbLed::GREEN);
+      closedLedState = HIGH;
+      previousClosedLedMillis += CLOSED_OFF;
+    }
+  } else {
+    if (currentMillis - previousClosedLedMillis >= CLOSED_ON) {
+      status_led.off();
+      closedLedState = LOW;
+      previousClosedLedMillis += CLOSED_ON;
+    }
+  }
 }
 
 void blink_error() {
-  status_led.flash(255, 0, 0, ERROR_ON, ERROR_OFF);
+  if (errorLedState == LOW) {
+    if (currentMillis - previousErrorLedMillis >= ERROR_OFF) {
+      status_led.setColor(RgbLed::RED);
+      errorLedState = HIGH;
+      previousErrorLedMillis += ERROR_OFF;
+    }
+  } else {
+    if (currentMillis - previousErrorLedMillis >= ERROR_ON) {
+      status_led.off();
+      errorLedState = LOW;
+      previousErrorLedMillis += ERROR_ON;
+    }
+  }
+}
+
+void blink_control() {
+  status_led.setColor(RgbLed::YELLOW);
+}
+
+void closeGate() {
+  String gate = server.arg("gate") == "" ? "all" : server.arg("gate");
+  Serial.println("close gate..." + gate);
+  if (gate == "front" || gate == "1") {
+    closeFront();
+    server.send(201, F("application/json"), "{\"status\":201,\"message\":\"Gate closed with identifier: " + gate + "\"}");
+  } else if (gate == "rear" || gate == "2") {
+    closeRear();
+    server.send(201, F("application/json"), "{\"status\":201,\"message\":\"Gate closed with identifier: " + gate + "\"}");
+  } else if (gate == "all") {
+    closeFront();
+    closeRear();
+    server.send(201, F("application/json"), "{\"status\":201,\"message\":\"All gates closed\"}");
+  } else {
+    server.send(400, F("application/json"), "{\"status\":400,\"message\":\"No gate found with identifier: " + gate + "\"}");
+    Serial.println("gate not found: " + gate);
+  }
+}
+
+void closeFront() {
+  digitalWrite(FRONT_RELAY_PIN, HIGH);
+  delay(250);
+  digitalWrite(FRONT_RELAY_PIN, LOW);
+}
+
+void closeRear() {
+  digitalWrite(REAR_RELAY_PIN, HIGH);
+  delay(250);
+  digitalWrite(REAR_RELAY_PIN, LOW);
 }
