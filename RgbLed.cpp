@@ -2,6 +2,7 @@
 #include "RgbLed.h"
 
 int RgbLed::BLUE[3] = { 0, 0, 205 };
+int RgbLed::BLANK[3] = { -1, -1, -1 };
 int RgbLed::GREEN[3] = { 0, 200, 0 };
 int RgbLed::MAGENTA[3] = { 255, 0, 255 };
 int RgbLed::ORANGE[3] = { 255, 69, 0 };
@@ -84,9 +85,9 @@ void RgbLed::color(int red, int green, int blue) {
     ledcWrite(1, 255 - green);
     ledcWrite(2, 255 - blue);
 #else
-    analogWrite(_red_pin, 255 - red);
-    analogWrite(_green_pin, 255 - green);
-    analogWrite(_blue_pin, 255 - blue);
+    digitalWrite(_red_pin, 255 - red);
+    digitalWrite(_green_pin, 255 - green);
+    digitalWrite(_blue_pin, 255 - blue);
 #endif
   } else {
 #if defined(ESP32)
@@ -94,9 +95,9 @@ void RgbLed::color(int red, int green, int blue) {
     ledcWrite(1, green);
     ledcWrite(2, blue);
 #else
-    analogWrite(_red_pin, red);
-    analogWrite(_green_pin, green);
-    analogWrite(_blue_pin, blue);
+    digitalWrite(_red_pin, red);
+    digitalWrite(_green_pin, green);
+    digitalWrite(_blue_pin, blue);
 #endif
   }
 }

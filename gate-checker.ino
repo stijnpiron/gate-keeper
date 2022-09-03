@@ -7,28 +7,31 @@
 
 #include "RgbLed.h"
 
+#pragma region PARAMSETUP
 // set led pins
 #define RED_LED_PIN 5
 #define GREEN_LED_PIN 4
 #define BLUE_LED_PIN 0
 
 // set switch pins
-#define FRONT_REED_PIN 14
+#define FRONT_REED_PIN A0
 #define REAR_REED_PIN 12
+#define FRONT_REED_PIN_OPEN 15
+#define REAR_REED_PIN_OPEN 12
 
 // set relay pins
 #define FRONT_RELAY_PIN 13
 #define REAR_RELAY_PIN 2
 
 // set timings
-#define OPEN_ON 500
-#define OPEN_OFF 1000
-#define CLOSED_ON 250
-#define CLOSED_OFF 29750
-#define CONTROL_ON 500
-#define CONTROL_OFF 500
-#define ERROR_ON 150
-#define ERROR_OFF 150
+const int open_on = 500;
+const int open_off = 1000;
+const int closed_on = 250;
+const int closed_off = 29750;
+const int control_on = 500;
+const int control_off = 500;
+const int error_on = 150;
+const int error_off = 150;
 
 // set wifi settings
 #define WIFI_SSID "UnifIOT"
@@ -59,7 +62,10 @@ int feedback_state = 0;
 
 ESP8266WebServer server(80);
 
+#pragma endregion
+
 void setup() {
+  // LED red dduring boot process
   status_led.setColor(RgbLed::RED);
   Serial.begin(115200);
   // set pin modes
@@ -72,42 +78,49 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  // Wait for connection
+  // Wait for WiFi connection
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(350);
   }
+  // print WiFi properties
   Serial.println("");
   Serial.print("Connected to ");
   Serial.println(WIFI_SSID);
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Activate mDNS this is used to be able to connect to the server
-  // with local DNS hostmane gatechecker.local
+  // Activate mDNS this is used to be able to connect to the server with the DNS name
   if (MDNS.begin("gatechecker")) {
     Serial.println("MDNS responder started");
   }
 
-  // Set server routing
+  // Set webserver routing
   restServerRouting();
   // Set not found response
   server.onNotFound(handleNotFound);
-  // Start server
+  // Start webserver
   server.begin();
-  Serial.println("HTTP server started");
+  Serial.println("Webserver started");
 
   status_led.off();
 }
 
 void loop() {
+  pinMode(A0, OUTPUT);
+  digitalWrite(A0, HIGH);
+  // set current time used for timing events
   currentMillis = millis();
+  // check gate status
   set_status();
+  // blink the led accordingly
   blink_feedback_led();
+  // handle any web requests
   server.handleClient();
 }
 
-// Define routing
+#pragma region WEBSERVER
+// Define webserver routing
 void restServerRouting() {
   server.on("/", HTTP_GET, []() {
     server.send(200, "text/html", "Gate cheker API, check status on: http://" + WiFi.localIP().toString() + "/status");
@@ -118,11 +131,6 @@ void restServerRouting() {
 
 // serving settings
 void getStatus() {
-  // Allocate a temporary JsonDocument
-  // Don't forget to change the capacity to match your requirements.
-  // Use arduinojson.org/v6/assistant to compute the capacity.
-  //  StaticJsonDocument<512> doc;
-  // You can use DynamicJsonDocument as well
   DynamicJsonDocument doc(512);
 
   doc["ip"] = WiFi.localIP().toString();
@@ -157,7 +165,9 @@ void handleNotFound() {
   }
   server.send(404, "text/plain", message);
 }
+#pragma endregion
 
+#pragma region STATUSLED
 void set_status() {
   /* 
   * variable that stores the feedback state of the switches: 
@@ -171,10 +181,10 @@ void set_status() {
   feedback_state = 0;
 
   // check the gates and update the feedback variable
-  if (digitalRead(FRONT_REED_PIN) == LOW) {
+  if (analogRead(FRONT_REED_PIN) == LOW) {
     feedback_state += 1;
   }
-  if (digitalRead(REAR_REED_PIN) == LOW) {
+  if (analogRead(REAR_REED_PIN) == LOW) {
     feedback_state += 2;
   }
 }
@@ -198,7 +208,7 @@ void blink_feedback_led() {
     case 3:
       blink_both();
       break;
-    // errorr occurred during gate check or gate control
+    // error occurred during gate check or gate control
     case -1:
       blink_error();
       break;
@@ -206,89 +216,75 @@ void blink_feedback_led() {
 }
 
 void blink_front() {
-  if (frontLedState == LOW) {
-    if (currentMillis - previousFrontLedMillis >= OPEN_OFF) {
-      status_led.setColor(RgbLed::BLUE);
-      frontLedState = HIGH;
-      previousFrontLedMillis += OPEN_OFF;
-    }
-  } else {
-    if (currentMillis - previousFrontLedMillis >= OPEN_ON) {
-      status_led.off();
-      frontLedState = LOW;
-      previousFrontLedMillis += OPEN_ON;
-    }
-  }
+  blink(RgbLed::BLUE, status_led, frontLedState, previousFrontLedMillis, open_on, open_off);
 }
 
 void blink_rear() {
-  if (rearLedState == LOW) {
-    if (currentMillis - previousRearLedMillis >= OPEN_OFF) {
-      status_led.setColor(RgbLed::ORANGE);
-      rearLedState = HIGH;
-      previousRearLedMillis += OPEN_OFF;
-    }
-  } else {
-    if (currentMillis - previousRearLedMillis >= OPEN_ON) {
-      status_led.off();
-      rearLedState = LOW;
-      previousRearLedMillis += OPEN_ON;
-    }
-  }
+  blink(RgbLed::ORANGE, status_led, rearLedState, previousRearLedMillis, open_on, open_off);
 }
 
 void blink_both() {
-  if (openLedState == LOW) {
-    if (currentMillis - previousOpenLedMillis >= OPEN_ON) {
-      status_led.setColor(RgbLed::BLUE);
-      openLedState = HIGH;
-      previousOpenLedMillis += OPEN_ON;
-    }
-  } else {
-    if (currentMillis - previousOpenLedMillis >= OPEN_ON) {
-      status_led.setColor(RgbLed::ORANGE);
-      openLedState = LOW;
-      previousOpenLedMillis += OPEN_ON;
-    }
-  }
-}
+  blink(RgbLed::BLUE, status_led, openLedState, previousOpenLedMillis, open_on, open_on, RgbLed::ORANGE);
 
 void blink_closed() {
-  if (closedLedState == LOW) {
-    if (currentMillis - previousClosedLedMillis >= CLOSED_OFF) {
-      status_led.setColor(RgbLed::GREEN);
-      closedLedState = HIGH;
-      previousClosedLedMillis += CLOSED_OFF;
-    }
-  } else {
-    if (currentMillis - previousClosedLedMillis >= CLOSED_ON) {
-      status_led.off();
-      closedLedState = LOW;
-      previousClosedLedMillis += CLOSED_ON;
-    }
-  }
+  blink(RgbLed::GREEN, status_led, closedLedState, previousClosedLedMillis, closed_on, closed_off);
 }
 
 void blink_error() {
-  if (errorLedState == LOW) {
-    if (currentMillis - previousErrorLedMillis >= ERROR_OFF) {
-      status_led.setColor(RgbLed::RED);
-      errorLedState = HIGH;
-      previousErrorLedMillis += ERROR_OFF;
-    }
-  } else {
-    if (currentMillis - previousErrorLedMillis >= ERROR_ON) {
-      status_led.off();
-      errorLedState = LOW;
-      previousErrorLedMillis += ERROR_ON;
-    }
-  }
+  blink(RgbLed::RED, status_led, errorLedState, previousErrorLedMillis, error_on, error_off);
 }
 
 void blink_control() {
-  status_led.setColor(RgbLed::YELLOW);
+  blink(RgbLed::YELLOW, status_led, controlLedState, previousControlLedMillis, control_on, control_off);
 }
 
+void blink(int (&color)[3], RgbLed& led, byte& led_state, unsigned long& ledMillis, int time_on, int time_off) {
+  blink(color, led, led_state, ledMillis, time_on, time_off, RgbLed::BLANK);
+}
+
+void blink(int (&color)[3], RgbLed& led, byte& led_state, unsigned long& ledMillis, int time_on, int time_off, int (&color2)[3]) {
+  if (led_state == LOW) {
+    if (currentMillis - ledMillis >= time_off) {
+      led.setColor(color);
+      led_state = HIGH;
+      ledMillis += time_off;
+    }
+  } else {
+    if (currentMillis - ledMillis >= time_on) {
+      if (color2 == RgbLed::BLANK) {
+        led.off();
+      } else {
+        led.setColor(color2);
+      }
+      led_state = LOW;
+      ledMillis += time_on;
+    }
+  }
+}
+#pragma endregion
+
+#pragma region GATECONTROL
+/**
+ * Controlling the gate involves triggering a relay switch for the gate. 
+ * Wether the comnmand is OPEN or CLOSE, the same action is performed, 
+ * monitorring the gate status is different:
+ * 
+ * OPEN:
+ * 1. trgger relay
+ * 2. wait x seconds
+ * 3. check gate status
+ * 4. if status == OPEN, stop
+ * 5. if status == CLOSED, repeat from step 1
+ * max 2 repetitions, if not OPEN after 2 repetitions, engage ERROR state
+ *
+ * CLOSE:
+ * 1. check gate status
+ * 2. if status == CLOSED, stop
+ * 3. if status == OPEN, trigger relay
+ * 4. wait x seconds
+ * 5. repeat from  step 1
+ * max 3 repetitions, if not OPEN after 3 repetitions, engage ERROR state
+ */
 void closeGate() {
   String gate = server.arg("gate") == "" ? "all" : server.arg("gate");
   Serial.println("close gate..." + gate);
@@ -319,3 +315,4 @@ void closeRear() {
   delay(250);
   digitalWrite(REAR_RELAY_PIN, LOW);
 }
+#pragma endregion
