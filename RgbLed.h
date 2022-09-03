@@ -11,11 +11,12 @@ class RgbLed {
 public:
   RgbLed(int red_pin, int green_pin, int blue_pin, bool common);
 
-  static int RED[3];
+  static int BLANK[3];
   static int BLUE[3];
   static int GREEN[3];
   static int MAGENTA[3];
   static int ORANGE[3];
+  static int RED[3];
   static int WHITE[3];
   static int YELLOW[3];
 
