@@ -8,20 +8,21 @@
 #include "RgbLed.h"
 
 #pragma region PARAMSETUP
+
 // set led pins
-#define RED_LED_PIN 5
-#define GREEN_LED_PIN 4
-#define BLUE_LED_PIN 0
+#define RED_LED_PIN 15 // D8
+#define GREEN_LED_PIN 2 // D4
+#define BLUE_LED_PIN 0 // D3
 
 // set switch pins
-#define FRONT_REED_PIN A0
-#define REAR_REED_PIN 12
-#define FRONT_REED_PIN_OPEN 15
-#define REAR_REED_PIN_OPEN 12
+#define FRONT_REED_PIN A0 // A0
+#define REAR_REED_PIN 14 // D5
+#define FRONT_REED_PIN_OPEN 12 // D6
+#define REAR_REED_PIN_OPEN 13 // D7
 
 // set relay pins
-#define FRONT_RELAY_PIN 13
-#define REAR_RELAY_PIN 2
+#define FRONT_RELAY_PIN 5 // D1
+#define REAR_RELAY_PIN 4 // D2
 
 // set timings
 const int open_on = 500;
@@ -83,6 +84,7 @@ void setup() {
     Serial.print(".");
     delay(350);
   }
+  
   // print WiFi properties
   Serial.println("");
   Serial.print("Connected to ");
@@ -107,8 +109,6 @@ void setup() {
 }
 
 void loop() {
-  pinMode(A0, OUTPUT);
-  digitalWrite(A0, HIGH);
   // set current time used for timing events
   currentMillis = millis();
   // check gate status
@@ -120,6 +120,7 @@ void loop() {
 }
 
 #pragma region WEBSERVER
+
 // Define webserver routing
 void restServerRouting() {
   server.on("/", HTTP_GET, []() {
@@ -165,9 +166,11 @@ void handleNotFound() {
   }
   server.send(404, "text/plain", message);
 }
+
 #pragma endregion
 
 #pragma region STATUSLED
+
 void set_status() {
   /* 
   * variable that stores the feedback state of the switches: 
@@ -181,10 +184,12 @@ void set_status() {
   feedback_state = 0;
 
   // check the gates and update the feedback variable
-  if (analogRead(FRONT_REED_PIN) == LOW) {
+  // as we need to read from an analog pin, we check if the reading is less or more than 1000, 
+  // digital HIGH would result in +/-1024, digital low in +/-18
+  if (analogRead(FRONT_REED_PIN) < 1000) {
     feedback_state += 1;
   }
-  if (analogRead(REAR_REED_PIN) == LOW) {
+  if (analogRead(REAR_REED_PIN) < 1000) {
     feedback_state += 2;
   }
 }
@@ -225,6 +230,7 @@ void blink_rear() {
 
 void blink_both() {
   blink(RgbLed::BLUE, status_led, openLedState, previousOpenLedMillis, open_on, open_on, RgbLed::ORANGE);
+}
 
 void blink_closed() {
   blink(RgbLed::GREEN, status_led, closedLedState, previousClosedLedMillis, closed_on, closed_off);
@@ -261,9 +267,11 @@ void blink(int (&color)[3], RgbLed& led, byte& led_state, unsigned long& ledMill
     }
   }
 }
+
 #pragma endregion
 
 #pragma region GATECONTROL
+
 /**
  * Controlling the gate involves triggering a relay switch for the gate. 
  * Wether the comnmand is OPEN or CLOSE, the same action is performed, 
@@ -315,4 +323,5 @@ void closeRear() {
   delay(250);
   digitalWrite(REAR_RELAY_PIN, LOW);
 }
+
 #pragma endregion
