@@ -5,24 +5,26 @@
 #include <ESP8266mDNS.h>
 #include <ArduinoJson.h>
 
+
 #include "RgbLed.h"
+#include "config.h"
 
 #pragma region PARAMSETUP
 
 // set led pins
-#define RED_LED_PIN 15 // D8
-#define GREEN_LED_PIN 2 // D4
-#define BLUE_LED_PIN 0 // D3
+#define RED_LED_PIN 15   // D8
+#define GREEN_LED_PIN 2  // D4
+#define BLUE_LED_PIN 0   // D3
 
 // set switch pins
-#define FRONT_REED_PIN A0 // A0
-#define REAR_REED_PIN 14 // D5
-#define FRONT_REED_PIN_OPEN 12 // D6
-#define REAR_REED_PIN_OPEN 13 // D7
+#define FRONT_REED_PIN A0       // A0
+#define REAR_REED_PIN 14        // D5
+#define FRONT_REED_PIN_OPEN 12  // D6
+#define REAR_REED_PIN_OPEN 13   // D7
 
 // set relay pins
-#define FRONT_RELAY_PIN 5 // D1
-#define REAR_RELAY_PIN 4 // D2
+#define FRONT_RELAY_PIN 5  // D1
+#define REAR_RELAY_PIN 4   // D2
 
 // set timings
 const int open_on = 500;
@@ -33,10 +35,6 @@ const int control_on = 500;
 const int control_off = 500;
 const int error_on = 150;
 const int error_off = 150;
-
-// set wifi settings
-#define WIFI_SSID "UnifIOT"
-#define WIFI_PASSWORD "VRRfGsK1WM4fDrf-lLorSMsrwm74neR2"
 
 // keep track of time
 unsigned long currentMillis = 0;
@@ -60,6 +58,8 @@ RgbLed status_led(RED_LED_PIN, GREEN_LED_PIN, BLUE_LED_PIN, RgbLed::COMMON_CATHO
 
 // Global variables
 int feedback_state = 0;
+const char* wifi_ssid = WIFI_SSID;
+const char* wifi_pw = WIFI_PASSWORD;
 
 ESP8266WebServer server(80);
 
@@ -67,7 +67,6 @@ ESP8266WebServer server(80);
 
 void setup() {
   // LED red dduring boot process
-  status_led.setColor(RgbLed::RED);
   Serial.begin(115200);
   // set pin modes
   pinMode(FRONT_REED_PIN, INPUT);
@@ -75,20 +74,41 @@ void setup() {
   pinMode(FRONT_RELAY_PIN, OUTPUT);
   pinMode(REAR_RELAY_PIN, OUTPUT);
 
+  startWiFi();
+}
+
+void loop() {
+  if (WiFi.isConnected() == false) {
+    startWiFi();
+  }
+  // set current time used for timing events
+  currentMillis = millis();
+  // handle any web requests
+  server.handleClient();
+  // check gate status
+  set_status();
+  // blink the led accordingly
+  blink_feedback_led();
+}
+
+#pragma region WEBSERVER
+
+void startWiFi() {
+  status_led.setColor(RgbLed::RED);
   // setup wifi
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(wifi_ssid, wifi_pw);
 
   // Wait for WiFi connection
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(350);
   }
-  
+
   // print WiFi properties
   Serial.println("");
   Serial.print("Connected to ");
-  Serial.println(WIFI_SSID);
+  Serial.println(wifi_ssid);
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
@@ -96,7 +116,6 @@ void setup() {
   if (MDNS.begin("gatechecker")) {
     Serial.println("MDNS responder started");
   }
-
   // Set webserver routing
   restServerRouting();
   // Set not found response
@@ -107,19 +126,6 @@ void setup() {
 
   status_led.off();
 }
-
-void loop() {
-  // set current time used for timing events
-  currentMillis = millis();
-  // check gate status
-  set_status();
-  // blink the led accordingly
-  blink_feedback_led();
-  // handle any web requests
-  server.handleClient();
-}
-
-#pragma region WEBSERVER
 
 // Define webserver routing
 void restServerRouting() {
@@ -184,7 +190,7 @@ void set_status() {
   feedback_state = 0;
 
   // check the gates and update the feedback variable
-  // as we need to read from an analog pin, we check if the reading is less or more than 1000, 
+  // as we need to read from an analog pin, we check if the reading is less or more than 1000,
   // digital HIGH would result in +/-1024, digital low in +/-18
   if (analogRead(FRONT_REED_PIN) < 1000) {
     feedback_state += 1;
